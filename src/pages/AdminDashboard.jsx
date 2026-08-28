@@ -8,7 +8,10 @@ import {
   LogOut,
   RefreshCw,
   Search,
-  Archive
+  Archive,
+  UploadCloud,
+  FileCheck2,
+  ExternalLink
 } from "lucide-react";
 
 import {
@@ -25,21 +28,13 @@ import {
 
 
 const STATUSES = [
-
   "Waiting",
-
   "Reviewing",
-
   "In Progress",
-
   "Revision",
-
   "Approved",
-
   "Done",
-
   "Archived",
-
 ];
 
 
@@ -72,6 +67,14 @@ export default function AdminDashboard() {
   const [saving, setSaving] =
     useState(false);
 
+
+  const [finalFile, setFinalFile] =
+    useState(null);
+
+
+  // =====================================================
+  // LOAD SEMUA REQUEST
+  // =====================================================
 
   async function loadRequests() {
 
@@ -107,8 +110,32 @@ export default function AdminDashboard() {
     }
 
 
+    const rows =
+      data || [];
+
+
     setRequests(
-      data || []
+      rows
+    );
+
+
+    // Kalau sedang membuka detail request,
+    // refresh datanya juga setelah update.
+    setSelected(
+      current => {
+
+        if (!current) {
+          return null;
+        }
+
+        return (
+          rows.find(
+            item =>
+              item.id === current.id
+          ) || current
+        );
+
+      }
     );
 
 
@@ -123,6 +150,10 @@ export default function AdminDashboard() {
 
   }, []);
 
+
+  // =====================================================
+  // STATISTIK DASHBOARD
+  // =====================================================
 
   const stats =
     useMemo(() => {
@@ -166,6 +197,10 @@ export default function AdminDashboard() {
 
     }, [requests]);
 
+
+  // =====================================================
+  // SEARCH + FILTER
+  // =====================================================
 
   const filtered =
     useMemo(() => {
@@ -230,65 +265,234 @@ export default function AdminDashboard() {
     ]);
 
 
+  // =====================================================
+  // PILIH REQUEST
+  // =====================================================
+
+  function chooseRequest(item) {
+
+    setSelected(item);
+
+    // Reset file yang sebelumnya dipilih
+    // supaya tidak ikut ke request berikutnya.
+    setFinalFile(null);
+
+  }
+
+
+  // =====================================================
+  // SAVE REQUEST + UPLOAD FINAL FILE
+  // =====================================================
+
   async function saveRequest() {
 
-    if (!selected) return;
+    if (!selected) {
+      return;
+    }
 
 
     setSaving(true);
 
 
-    const {
-      error
-    } =
-      await supabase
+    try {
 
-        .from("design_requests")
+      let finalFileUrl =
+        selected.final_file_url ||
+        null;
 
-        .update({
 
-          status:
-            selected.status,
+      let finalFileName =
+        selected.final_file_name ||
+        null;
 
-          assigned_to:
-            selected.assigned_to ||
-            null,
 
-          internal_notes:
-            selected.internal_notes ||
-            null,
+      // =================================================
+      // STATUS DONE WAJIB PUNYA FILE
+      // =================================================
 
-        })
+      if (
+        selected.status === "Done" &&
+        !finalFile &&
+        !selected.final_file_url
+      ) {
 
-        .eq(
-          "id",
-          selected.id
+        alert(
+          "Upload file hasil desain terlebih dahulu sebelum mengubah status menjadi Done."
         );
 
+        setSaving(false);
 
-    if (error) {
+        return;
 
-      alert(error.message);
+      }
+
+
+      // =================================================
+      // UPLOAD FILE BARU
+      // =================================================
+
+      if (finalFile) {
+
+        const extension =
+          finalFile.name
+            .split(".")
+            .pop()
+            ?.toLowerCase() ||
+          "file";
+
+
+        const storageName =
+          `${crypto.randomUUID()}.${extension}`;
+
+
+        const {
+          error: uploadError
+        } =
+          await supabase.storage
+
+            .from("deliverables")
+
+            .upload(
+              storageName,
+              finalFile,
+              {
+                cacheControl:
+                  "3600",
+
+                upsert:
+                  false,
+              }
+            );
+
+
+        if (uploadError) {
+
+          throw uploadError;
+
+        }
+
+
+        // ===============================================
+        // AMBIL PUBLIC URL FILE
+        // ===============================================
+
+        const {
+          data: publicUrlData
+        } =
+          supabase.storage
+
+            .from("deliverables")
+
+            .getPublicUrl(
+              storageName
+            );
+
+
+        finalFileUrl =
+          publicUrlData.publicUrl;
+
+
+        finalFileName =
+          finalFile.name;
+
+      }
+
+
+      // =================================================
+      // UPDATE REQUEST DI DATABASE
+      // =================================================
+
+      const {
+        error
+      } =
+        await supabase
+
+          .from("design_requests")
+
+          .update({
+
+            status:
+              selected.status,
+
+            assigned_to:
+              selected.assigned_to ||
+              null,
+
+            internal_notes:
+              selected.internal_notes ||
+              null,
+
+            final_file_url:
+              finalFileUrl,
+
+            final_file_name:
+              finalFileName,
+
+          })
+
+          .eq(
+            "id",
+            selected.id
+          );
+
+
+      if (error) {
+
+        throw error;
+
+      }
+
+
+      // Reset file input
+      setFinalFile(null);
+
+
+      // Refresh dashboard
+      await loadRequests();
+
+
+      if (
+        selected.status === "Done"
+      ) {
+
+        alert(
+          "Request berhasil diselesaikan. File final sudah tersedia untuk pemesan."
+        );
+
+      } else {
+
+        alert(
+          "Request berhasil diperbarui."
+        );
+
+      }
+
+
+    } catch (error) {
+
+      console.error(
+        error
+      );
+
+
+      alert(
+        error.message ||
+        "Gagal menyimpan perubahan."
+      );
+
+
+    } finally {
 
       setSaving(false);
 
-      return;
-
     }
-
-
-    setSaving(false);
-
-
-    await loadRequests();
-
-
-    alert(
-      "Request berhasil diperbarui."
-    );
 
   }
 
+
+  // =====================================================
+  // LOGOUT
+  // =====================================================
 
   async function logout() {
 
@@ -312,6 +516,10 @@ export default function AdminDashboard() {
 
         <div className="container">
 
+
+          {/* =========================================
+              HEADER
+          ========================================= */}
 
           <div className="admin-header">
 
@@ -363,11 +571,17 @@ export default function AdminDashboard() {
           </div>
 
 
+          {/* =========================================
+              STATISTICS
+          ========================================= */}
+
           <div className="admin-stats">
 
             <div>
 
-              <span>Total Request</span>
+              <span>
+                Total Request
+              </span>
 
               <strong>
                 {stats.total}
@@ -378,7 +592,9 @@ export default function AdminDashboard() {
 
             <div>
 
-              <span>Waiting</span>
+              <span>
+                Waiting
+              </span>
 
               <strong>
                 {stats.waiting}
@@ -389,7 +605,9 @@ export default function AdminDashboard() {
 
             <div>
 
-              <span>In Progress</span>
+              <span>
+                In Progress
+              </span>
 
               <strong>
                 {stats.progress}
@@ -400,7 +618,9 @@ export default function AdminDashboard() {
 
             <div>
 
-              <span>Done</span>
+              <span>
+                Done
+              </span>
 
               <strong>
                 {stats.done}
@@ -411,6 +631,10 @@ export default function AdminDashboard() {
           </div>
 
 
+          {/* =========================================
+              FILTER + SEARCH
+          ========================================= */}
+
           <div className="admin-toolbar">
 
             <div className="filter-pills">
@@ -420,33 +644,35 @@ export default function AdminDashboard() {
                   "Semua",
                   ...STATUSES
                 ]
-                .map(
-                  status => (
+                  .map(
+                    status => (
 
-                    <button
+                      <button
 
-                      key={status}
+                        key={status}
 
-                      type="button"
+                        type="button"
 
-                      className={
-                        filter === status
-                          ? "active"
-                          : ""
-                      }
+                        className={
+                          filter === status
+                            ? "active"
+                            : ""
+                        }
 
-                      onClick={() =>
-                        setFilter(status)
-                      }
+                        onClick={() =>
+                          setFilter(
+                            status
+                          )
+                        }
 
-                    >
+                      >
 
-                      {status}
+                        {status}
 
-                    </button>
+                      </button>
 
+                    )
                   )
-                )
               }
 
             </div>
@@ -456,7 +682,9 @@ export default function AdminDashboard() {
 
               <label className="search-box">
 
-                <Search size={17} />
+                <Search
+                  size={17}
+                />
 
                 <input
 
@@ -479,9 +707,12 @@ export default function AdminDashboard() {
                 type="button"
                 className="admin-icon-button"
                 onClick={loadRequests}
+                aria-label="Refresh request"
               >
 
-                <RefreshCw size={18} />
+                <RefreshCw
+                  size={18}
+                />
 
               </button>
 
@@ -490,8 +721,16 @@ export default function AdminDashboard() {
           </div>
 
 
+          {/* =========================================
+              WORKSPACE
+          ========================================= */}
+
           <div className="admin-workspace">
 
+
+            {/* =======================================
+                REQUEST LIST
+            ======================================= */}
 
             <div className="admin-request-list">
 
@@ -507,82 +746,114 @@ export default function AdminDashboard() {
                     </div>
 
                   )
-                  : filtered.map(
-                    item => (
+                  : filtered.length === 0
+                    ? (
 
-                      <button
+                      <div className="empty-state">
 
-                        type="button"
+                        Tidak ada request.
 
-                        key={item.id}
-
-                        className="admin-request-row"
-
-                        onClick={() =>
-                          setSelected(item)
-                        }
-
-                      >
-
-                        <div>
-
-                          <span>
-
-                            {
-                              item.request_code
-                            }
-
-                          </span>
-
-                          <strong>
-
-                            {
-                              item.event_name ||
-                              item.service_id
-                            }
-
-                          </strong>
-
-                          <small>
-
-                            {item.division}
-
-                            {" • "}
-
-                            {
-                              item.requester_name
-                            }
-
-                          </small>
-
-                        </div>
-
-
-                        <div>
-
-                          <strong>
-
-                            {item.status}
-
-                          </strong>
-
-                          <small>
-
-                            {item.deadline}
-
-                          </small>
-
-                        </div>
-
-                      </button>
+                      </div>
 
                     )
-                  )
+                    : filtered.map(
+                      item => (
+
+                        <button
+
+                          type="button"
+
+                          key={item.id}
+
+                          className={
+                            `admin-request-row ${
+                              selected?.id ===
+                              item.id
+                                ? "selected"
+                                : ""
+                            }`
+                          }
+
+                          onClick={() =>
+                            chooseRequest(
+                              item
+                            )
+                          }
+
+                        >
+
+                          <div>
+
+                            <span>
+
+                              {
+                                item.request_code
+                              }
+
+                            </span>
+
+
+                            <strong>
+
+                              {
+                                item.event_name ||
+                                item.service_id
+                              }
+
+                            </strong>
+
+
+                            <small>
+
+                              {
+                                item.division
+                              }
+
+                              {" • "}
+
+                              {
+                                item.requester_name
+                              }
+
+                            </small>
+
+                          </div>
+
+
+                          <div>
+
+                            <strong>
+
+                              {
+                                item.status
+                              }
+
+                            </strong>
+
+
+                            <small>
+
+                              {
+                                item.deadline
+                              }
+
+                            </small>
+
+                          </div>
+
+                        </button>
+
+                      )
+                    )
               }
 
 
             </div>
 
+
+            {/* =======================================
+                REQUEST DETAIL
+            ======================================= */}
 
             <aside className="admin-detail">
 
@@ -623,12 +894,18 @@ export default function AdminDashboard() {
                       </h2>
 
 
+                      {/* =================================
+                          REQUEST INFORMATION
+                      ================================= */}
+
                       <div className="admin-detail-grid">
 
 
                         <div>
 
-                          <span>Pemesan</span>
+                          <span>
+                            Pemesan
+                          </span>
 
                           <strong>
 
@@ -643,7 +920,9 @@ export default function AdminDashboard() {
 
                         <div>
 
-                          <span>Divisi</span>
+                          <span>
+                            Divisi
+                          </span>
 
                           <strong>
 
@@ -658,7 +937,9 @@ export default function AdminDashboard() {
 
                         <div>
 
-                          <span>Kontak</span>
+                          <span>
+                            Kontak
+                          </span>
 
                           <strong>
 
@@ -674,7 +955,9 @@ export default function AdminDashboard() {
 
                         <div>
 
-                          <span>Deadline</span>
+                          <span>
+                            Deadline
+                          </span>
 
                           <strong>
 
@@ -689,6 +972,10 @@ export default function AdminDashboard() {
 
                       </div>
 
+
+                      {/* =================================
+                          BRIEF
+                      ================================= */}
 
                       <div className="admin-brief">
 
@@ -706,6 +993,10 @@ export default function AdminDashboard() {
 
                       </div>
 
+
+                      {/* =================================
+                          GOOGLE DRIVE
+                      ================================= */}
 
                       {
                         selected.drive_link &&
@@ -727,15 +1018,25 @@ export default function AdminDashboard() {
 
                             Buka Google Drive
 
+                            <ExternalLink
+                              size={15}
+                            />
+
                           </a>
 
                         )
                       }
 
 
+                      {/* =================================
+                          STATUS
+                      ================================= */}
+
                       <label className="admin-field">
 
-                        <span>Status</span>
+                        <span>
+                          Status
+                        </span>
 
                         <select
 
@@ -743,7 +1044,8 @@ export default function AdminDashboard() {
                             selected.status
                           }
 
-                          onChange={(event) =>
+                          onChange={(event) => {
+
                             setSelected({
 
                               ...selected,
@@ -751,8 +1053,16 @@ export default function AdminDashboard() {
                               status:
                                 event.target.value,
 
-                            })
-                          }
+                            });
+
+
+                            // Reset file yang baru dipilih
+                            // kalau status berubah.
+                            setFinalFile(
+                              null
+                            );
+
+                          }}
 
                         >
 
@@ -765,7 +1075,9 @@ export default function AdminDashboard() {
                                   value={status}
                                 >
 
-                                  {status}
+                                  {
+                                    status
+                                  }
 
                                 </option>
 
@@ -777,6 +1089,10 @@ export default function AdminDashboard() {
 
                       </label>
 
+
+                      {/* =================================
+                          ASSIGNED DESIGNER
+                      ================================= */}
 
                       <label className="admin-field">
 
@@ -811,6 +1127,10 @@ export default function AdminDashboard() {
                       </label>
 
 
+                      {/* =================================
+                          INTERNAL NOTES
+                      ================================= */}
+
                       <label className="admin-field">
 
                         <span>
@@ -839,10 +1159,211 @@ export default function AdminDashboard() {
                             })
                           }
 
+                          placeholder="Catatan untuk internal Kominfo"
+
                         />
 
                       </label>
 
+
+                      {/* =================================
+                          FINAL DESIGN FILE
+                          MUNCUL SAAT DONE / ARCHIVED
+                      ================================= */}
+
+                      {
+                        [
+                          "Done",
+                          "Archived"
+                        ].includes(
+                          selected.status
+                        )
+                        &&
+                        (
+
+                          <div className="admin-final-file">
+
+
+                            <div className="admin-final-file-header">
+
+                              <div>
+
+                                <span className="kicker">
+
+                                  FINAL DELIVERABLE
+
+                                </span>
+
+                                <h3>
+
+                                  File Hasil Desain
+
+                                </h3>
+
+                              </div>
+
+
+                              <FileCheck2
+                                size={24}
+                              />
+
+                            </div>
+
+
+                            {/* ==========================
+                                FILE YANG SUDAH ADA
+                            ========================== */}
+
+                            {
+                              selected.final_file_url &&
+                              (
+
+                                <div className="existing-final-file">
+
+                                  <div>
+
+                                    <span>
+
+                                      File saat ini
+
+                                    </span>
+
+                                    <strong>
+
+                                      {
+                                        selected.final_file_name ||
+                                        "File hasil desain"
+                                      }
+
+                                    </strong>
+
+                                  </div>
+
+
+                                  <a
+
+                                    href={
+                                      selected.final_file_url
+                                    }
+
+                                    target="_blank"
+
+                                    rel="noreferrer"
+
+                                    className="text-link"
+
+                                  >
+
+                                    Lihat File
+
+                                    <ExternalLink
+                                      size={15}
+                                    />
+
+                                  </a>
+
+                                </div>
+
+                              )
+                            }
+
+
+                            {/* ==========================
+                                UPLOAD FILE
+                            ========================== */}
+
+                            <label className="admin-field">
+
+                              <span>
+
+                                {
+                                  selected.final_file_url
+                                    ? "Ganti File Final"
+                                    : "Upload File Final *"
+                                }
+
+                              </span>
+
+
+                              <input
+
+                                type="file"
+
+                                accept=".png,.jpg,.jpeg,.webp,.pdf,.zip,image/png,image/jpeg,image/webp,application/pdf,application/zip"
+
+                                onChange={(event) =>
+
+                                  setFinalFile(
+
+                                    event.target
+                                      .files?.[0] ||
+                                    null
+
+                                  )
+
+                                }
+
+                              />
+
+
+                              <small className="admin-file-help">
+
+                                Format:
+                                PNG, JPG, WebP,
+                                PDF, atau ZIP.
+
+                              </small>
+
+                            </label>
+
+
+                            {/* ==========================
+                                FILE YANG BARU DIPILIH
+                            ========================== */}
+
+                            {
+                              finalFile &&
+                              (
+
+                                <div className="selected-final-file">
+
+                                  <UploadCloud
+                                    size={19}
+                                  />
+
+                                  <div>
+
+                                    <span>
+
+                                      File dipilih
+
+                                    </span>
+
+                                    <strong>
+
+                                      {
+                                        finalFile.name
+                                      }
+
+                                    </strong>
+
+                                  </div>
+
+                                </div>
+
+                              )
+                            }
+
+
+                          </div>
+
+                        )
+                      }
+
+
+                      {/* =================================
+                          SAVE BUTTON
+                      ================================= */}
 
                       <button
 
@@ -863,7 +1384,10 @@ export default function AdminDashboard() {
                         {
                           saving
                             ? "Menyimpan..."
-                            : "Simpan Perubahan"
+                            : selected.status ===
+                              "Done"
+                              ? "Selesaikan & Kirim File"
+                              : "Simpan Perubahan"
                         }
 
                       </button>

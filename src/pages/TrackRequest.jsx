@@ -3,7 +3,9 @@ import {
 } from "react";
 
 import {
-  Search
+  Search,
+  Download,
+  CheckCircle2
 } from "lucide-react";
 
 import PageTransition
@@ -32,13 +34,19 @@ export default function TrackRequest() {
     useState(null);
 
 
+  // =====================================================
+  // CARI REQUEST
+  // =====================================================
+
   async function searchRequest(event) {
 
     event.preventDefault();
 
 
     const cleanCode =
-      code.trim();
+      code
+        .trim()
+        .toUpperCase();
 
 
     if (!cleanCode) {
@@ -46,6 +54,8 @@ export default function TrackRequest() {
       setErrorMessage(
         "Masukkan kode request."
       );
+
+      setResult(null);
 
       return;
 
@@ -59,53 +69,136 @@ export default function TrackRequest() {
     setResult(null);
 
 
-    const {
-      data,
-      error
-    } =
-      await supabase.rpc(
-        "track_design_request",
+    try {
+
+      const {
+        data,
+        error
+      } =
+        await supabase.rpc(
+          "track_design_request",
+          {
+            p_code:
+              cleanCode
+          }
+        );
+
+
+      if (error) {
+
+        console.error(
+          error
+        );
+
+        setErrorMessage(
+          "Gagal memeriksa request. Silakan coba kembali."
+        );
+
+        return;
+
+      }
+
+
+      const row =
+        Array.isArray(data)
+          ? data[0]
+          : null;
+
+
+      if (!row) {
+
+        setErrorMessage(
+          "Kode request tidak ditemukan."
+        );
+
+        return;
+
+      }
+
+
+      setResult(
+        row
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        error
+      );
+
+
+      setErrorMessage(
+        "Terjadi kesalahan saat memeriksa request."
+      );
+
+
+    } finally {
+
+      setLoading(false);
+
+    }
+
+  }
+
+
+  // =====================================================
+  // FORMAT WAKTU
+  // =====================================================
+
+  function formatUpdatedAt(value) {
+
+    if (!value) {
+
+      return "-";
+
+    }
+
+
+    const date =
+      new Date(value);
+
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+
+      return "-";
+
+    }
+
+
+    return date
+      .toLocaleString(
+        "id-ID",
         {
-          p_code:
-            cleanCode
+          dateStyle:
+            "medium",
+
+          timeStyle:
+            "short"
         }
       );
 
-
-    setLoading(false);
-
-
-    if (error) {
-
-      setErrorMessage(
-        "Gagal memeriksa request."
-      );
-
-      return;
-
-    }
-
-
-    const row =
-      Array.isArray(data)
-        ? data[0]
-        : null;
-
-
-    if (!row) {
-
-      setErrorMessage(
-        "Kode request tidak ditemukan."
-      );
-
-      return;
-
-    }
-
-
-    setResult(row);
-
   }
+
+
+  // =====================================================
+  // APAKAH FILE SUDAH BISA DIDOWNLOAD?
+  // =====================================================
+
+  const canDownload =
+    result &&
+    [
+      "Done",
+      "Archived"
+    ].includes(
+      result.status
+    )
+    &&
+    result.final_file_url;
 
 
   return (
@@ -113,21 +206,33 @@ export default function TrackRequest() {
     <PageTransition>
 
 
-      <section className="page-hero section">
+      {/* =================================================
+          PAGE HEADER
+      ================================================= */}
 
-        <div className="container narrow">
+      <section
+        className="page-hero section"
+      >
 
-          <span className="kicker">
+        <div
+          className="container narrow"
+        >
+
+          <span
+            className="kicker"
+          >
 
             REQUEST TRACKING
 
           </span>
+
 
           <h1>
 
             Lacak progres desainmu.
 
           </h1>
+
 
           <p>
 
@@ -142,9 +247,17 @@ export default function TrackRequest() {
       </section>
 
 
-      <section className="section section-tight">
+      {/* =================================================
+          TRACKING FORM
+      ================================================= */}
 
-        <div className="container track-container">
+      <section
+        className="section section-tight"
+      >
+
+        <div
+          className="container track-container"
+        >
 
 
           <form
@@ -154,10 +267,14 @@ export default function TrackRequest() {
 
             <label>
 
-              <span>Kode Request</span>
+              <span>
+                Kode Request
+              </span>
 
 
-              <div className="track-input">
+              <div
+                className="track-input"
+              >
 
                 <input
 
@@ -166,10 +283,13 @@ export default function TrackRequest() {
                   onChange={(event) =>
                     setCode(
                       event.target.value
+                        .toUpperCase()
                     )
                   }
 
                   placeholder="ARS-7AF2-B930"
+
+                  autoComplete="off"
 
                 />
 
@@ -180,7 +300,10 @@ export default function TrackRequest() {
                   disabled={loading}
                 >
 
-                  <Search size={18} />
+                  <Search
+                    size={18}
+                  />
+
 
                   {
                     loading
@@ -197,13 +320,21 @@ export default function TrackRequest() {
           </form>
 
 
+          {/* =================================================
+              ERROR
+          ================================================= */}
+
           {
             errorMessage &&
             (
 
-              <div className="form-alert error">
+              <div
+                className="form-alert error"
+              >
 
-                {errorMessage}
+                {
+                  errorMessage
+                }
 
               </div>
 
@@ -211,14 +342,22 @@ export default function TrackRequest() {
           }
 
 
+          {/* =================================================
+              RESULT
+          ================================================= */}
+
           {
             result &&
             (
 
-              <div className="track-result">
+              <div
+                className="track-result"
+              >
 
 
-                <span className="kicker">
+                <span
+                  className="kicker"
+                >
 
                   {
                     result.request_code
@@ -231,23 +370,33 @@ export default function TrackRequest() {
 
                   {
                     result.event_name ||
-                    result.service_id
+                    result.service_id ||
+                    "Request Desain"
                   }
 
                 </h2>
 
 
-                <div className="track-result-grid">
+                {/* =============================================
+                    REQUEST INFORMATION
+                ============================================= */}
+
+                <div
+                  className="track-result-grid"
+                >
 
 
                   <div>
 
-                    <span>Kategori</span>
+                    <span>
+                      Kategori
+                    </span>
 
                     <strong>
 
                       {
-                        result.service_id
+                        result.service_id ||
+                        "-"
                       }
 
                     </strong>
@@ -257,12 +406,15 @@ export default function TrackRequest() {
 
                   <div>
 
-                    <span>Status</span>
+                    <span>
+                      Status
+                    </span>
 
                     <strong>
 
                       {
-                        result.status
+                        result.status ||
+                        "-"
                       }
 
                     </strong>
@@ -272,12 +424,15 @@ export default function TrackRequest() {
 
                   <div>
 
-                    <span>Deadline</span>
+                    <span>
+                      Deadline
+                    </span>
 
                     <strong>
 
                       {
-                        result.deadline
+                        result.deadline ||
+                        "-"
                       }
 
                     </strong>
@@ -296,11 +451,8 @@ export default function TrackRequest() {
                     <strong>
 
                       {
-                        new Date(
+                        formatUpdatedAt(
                           result.updated_at
-                        )
-                        .toLocaleString(
-                          "id-ID"
                         )
                       }
 
@@ -310,6 +462,177 @@ export default function TrackRequest() {
 
 
                 </div>
+
+
+                {/* =================================================
+                    FINAL DESIGN DOWNLOAD
+                    HANYA MUNCUL JIKA DONE / ARCHIVED
+                ================================================= */}
+
+                {
+                  canDownload &&
+                  (
+
+                    <div
+                      className="track-download"
+                    >
+
+
+                      <div
+                        className="track-download-info"
+                      >
+
+
+                        <div
+                          className="track-download-icon"
+                        >
+
+                          <CheckCircle2
+                            size={24}
+                          />
+
+                        </div>
+
+
+                        <div>
+
+                          <span>
+
+                            DESAIN SELESAI
+
+                          </span>
+
+
+                          <strong>
+
+                            {
+                              result.final_file_name ||
+                              "File hasil desain"
+                            }
+
+                          </strong>
+
+
+                          <p>
+
+                            File final desain
+                            sudah tersedia dan
+                            dapat diunduh.
+
+                          </p>
+
+                        </div>
+
+
+                      </div>
+
+
+                      <a
+
+                        className="button track-download-button"
+
+                        href={
+                          result.final_file_url
+                        }
+
+                        target="_blank"
+
+                        rel="noreferrer"
+
+                      >
+
+                        <Download
+                          size={18}
+                        />
+
+                        Download Hasil
+
+                      </a>
+
+
+                    </div>
+
+                  )
+                }
+
+
+                {/* =================================================
+                    BELUM SELESAI
+                ================================================= */}
+
+                {
+                  ![
+                    "Done",
+                    "Archived"
+                  ].includes(
+                    result.status
+                  )
+                  &&
+                  (
+
+                    <div
+                      className="track-progress-note"
+                    >
+
+                      <span>
+
+                        Request masih dalam proses.
+
+                      </span>
+
+                      <p>
+
+                        File hasil desain akan
+                        tersedia di halaman ini
+                        setelah status berubah
+                        menjadi Done.
+
+                      </p>
+
+                    </div>
+
+                  )
+                }
+
+
+                {/* =================================================
+                    DONE TAPI FILE BELUM ADA
+                ================================================= */}
+
+                {
+                  [
+                    "Done",
+                    "Archived"
+                  ].includes(
+                    result.status
+                  )
+                  &&
+                  !result.final_file_url
+                  &&
+                  (
+
+                    <div
+                      className="track-progress-note"
+                    >
+
+                      <span>
+
+                        Status desain sudah selesai.
+
+                      </span>
+
+                      <p>
+
+                        File final belum tersedia.
+                        Silakan hubungi Kominfo
+                        jika kondisi ini berlanjut.
+
+                      </p>
+
+                    </div>
+
+                  )
+                }
 
 
               </div>
